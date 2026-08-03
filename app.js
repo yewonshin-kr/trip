@@ -1,6 +1,11 @@
 const $=id=>document.getElementById(id);
 const KEY="tripLogSapporoV2";
-const DATA_URL="./data/trip-data.json?v=4";
+const EMPTY_DEFAULTS={
+ trip:{name:"여행 데이터를 불러와 주세요",start:"2026-08-08",end:"2026-08-14",booking:"",currency:"¥"},
+ flights:[],schedules:{},packing:[],outfits:[],budget:0,expenses:[],
+ stayInfo:{stayName:"",room:"",address:"",bookingCode:"",mapCode:"",mapUrl:"",guestFormUrl:"",checkinNote:"",checkoutNote:"",guestNote:""},
+ sharedDataLoaded:false
+};
 let defaults=null,state=null,day="",expenseCat="식비",ledgerDay="";
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function esc(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
@@ -16,22 +21,46 @@ function normalizePacking(packing){
   items:Array.isArray(cat?.items)?cat.items.map(item=>({t:String(item?.t||""),done:Boolean(item?.done)})):[]
  }))
 }
-async function loadDefaults(){
- const response=await fetch(DATA_URL,{cache:"no-store"});
- if(!response.ok)throw new Error(`기본 데이터 로드 실패: ${response.status}`);
- return response.json()
+function normalizeSharedImport(raw){
+ const source=raw?.sharedData&&typeof raw.sharedData==="object"?raw.sharedData:raw;
+ if(!source||typeof source!=="object"||!source.trip||!Array.isArray(source.flights)||!source.stayInfo)throw new Error("공통 여행 데이터 형식 오류");
+ const trip={...EMPTY_DEFAULTS.trip,...source.trip};
+ delete trip.memo;
+ return {
+  trip,
+  flights:source.flights.map(item=>({...item})),
+  stayInfo:{...EMPTY_DEFAULTS.stayInfo,...source.stayInfo}
+ }
+}
+function normalizePersonalImport(raw){
+ const source=raw?.personalData&&typeof raw.personalData==="object"?raw.personalData:raw;
+ if(!source||typeof source!=="object")throw new Error("개인 데이터 형식 오류");
+ return {
+  schedules:source.schedules&&typeof source.schedules==="object"?source.schedules:{},
+  packing:normalizePacking(source.packing),
+  outfits:Array.isArray(source.outfits)?source.outfits:[],
+  budget:Number.isFinite(Number(source.budget))?Number(source.budget):0,
+  expenses:Array.isArray(source.expenses)?source.expenses:[]
+ }
+}
+function hasObjectValues(value){
+ return value&&typeof value==="object"&&Object.values(value).some(item=>String(item??"").trim())
 }
 function normalizeState(raw){
  const saved=raw&&typeof raw==="object"?raw:{};
  const loaded=Object.assign(clone(defaults),saved);
  loaded.trip={...defaults.trip,...(saved.trip||{})};
- loaded.privateInfo={...defaults.privateInfo,...(saved.privateInfo||{})};
+ delete loaded.trip.memo;
+ const savedStay=hasObjectValues(saved.stayInfo)?saved.stayInfo:(hasObjectValues(saved.privateInfo)?saved.privateInfo:{});
+ loaded.stayInfo={...defaults.stayInfo,...savedStay};
+ delete loaded.privateInfo;
  loaded.flights=Array.isArray(saved.flights)?saved.flights:clone(defaults.flights);
  loaded.schedules=saved.schedules&&typeof saved.schedules==="object"?saved.schedules:clone(defaults.schedules);
  loaded.expenses=Array.isArray(saved.expenses)?saved.expenses:clone(defaults.expenses||[]);
  loaded.packing=normalizePacking(Array.isArray(saved.packing)?saved.packing:clone(defaults.packing));
  loaded.outfits=Array.isArray(saved.outfits)?saved.outfits:clone(defaults.outfits||[]);
  loaded.budget=Number.isFinite(Number(saved.budget))?Number(saved.budget):Number(defaults.budget||0);
+ loaded.sharedDataLoaded=Boolean(saved.sharedDataLoaded||loaded.flights.length||hasObjectValues(savedStay)||(saved.trip?.name&&saved.trip.name!==EMPTY_DEFAULTS.trip.name));
  return loaded
 }
 function load(){
@@ -68,7 +97,7 @@ function packingProgress(){
  const items=state.packing.filter(c=>c.id!=="outfits").flatMap(c=>c.items||[]);
  return {done:items.filter(x=>x.done).length,total:items.length}
 }
-function flightCard(f){return `<div class="flight card ${f.type==="귀국"?"return":""}">
+function flightCard(f){if(!f)return "";return `<div class="flight card ${f.type==="귀국"?"return":""}">
 <div class="label">✈ ${f.type} 항공편</div>
 <div class="sub">${f.date} · ${f.number} · ${f.airline}</div>
 <div class="route"><div class="airport"><b>${f.depart}</b><small>${f.from}<br>${f.fromName}</small></div><div class="plane"><span>✈</span><div class="sub">${f.duration}</div></div><div class="airport"><b>${f.arrive}</b><small>${f.to}<br>${f.toName}</small></div></div>
@@ -95,8 +124,8 @@ function homeRender(){
    <button class="status-card" onclick="goPage('packing')"><span class="status-icon">✓</span><b>${p.done}/${p.total}</b><small>준비 완료</small></button>
    <button class="status-card" onclick="goPage('ledger')"><span class="status-icon">₩</span><b>${money(state.expenses.reduce((a,b)=>a+b.amount,0))}</b><small>현재 지출</small></button>
  </section>
- <div class="section-label"><span>FLIGHT</span><small>항공편 정보</small></div>
- ${flightCard(state.flights[0])}${flightCard(state.flights[1])}`
+ ${state.sharedDataLoaded?`<div class="section-label"><span>FLIGHT</span><small>항공편 정보</small></div>
+ ${flightCard(state.flights[0])}${flightCard(state.flights[1])}`:`<button class="card" style="width:100%;padding:18px;text-align:left;background:#fff" onclick="$('sharedDataInput').click()"><b style="display:block;font-size:15px">공통 여행 데이터를 불러와 주세요</b><small class="sub" style="display:block;margin-top:6px;line-height:1.6">동행자에게 받은 JSON을 선택하면 항공편과 숙소·체크인 정보가 이 기기에 저장됩니다.</small></button>`}`
 }
 function miniIcon(t){const m={calendar:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',bag:'<svg viewBox="0 0 24 24"><rect x="6" y="7" width="12" height="14" rx="3"/><path d="M9 7V5h6v2"/></svg>',wallet:'<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="13" rx="3"/><path d="M3 10h18"/></svg>',map:'<svg viewBox="0 0 24 24"><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3Z"/><path d="M9 3v15M15 6v15"/></svg>',note:'<svg viewBox="0 0 24 24"><path d="M5 3h14v18H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>',more:'<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="#7650c8" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="#7650c8" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="#7650c8" stroke="none"/></svg>'};return m[t]}
 function setScheduleDay(value){day=value;scheduleRender()}
@@ -170,29 +199,27 @@ function ledgerRender(){
  <div class="fast card"><b>빠른 입력</b><div class="fastcats">${["식비","교통","쇼핑","편의점","관광","기타"].map(c=>`<button class="${expenseCat===c?"active":""}" onclick="expenseCat='${c}';ledgerRender()">${c}</button>`).join("")}</div><div class="fastrow"><input id="amt" type="number" inputmode="numeric" placeholder="${short(ledgerDay)} · ${expenseCat} 금액"><button onclick="addExpense()">저장</button></div></div>
  <div class="expenses card">${daily.length?daily.map(e=>{const idx=state.expenses.indexOf(e);return `<div class="exp"><div class="copy"><b>${e.title}</b><small>${e.time} · ${e.cat}</small></div><strong>${money(e.amount)}</strong><div class="rowactions" style="margin-left:8px"><button class="editbtn" onclick="editExpense(${idx})">편집</button><button class="deletebtn" onclick="deleteExpense(${idx})">삭제</button></div></div>`}).join(""):`<div class="sub" style="padding:28px;text-align:center">이 날짜에는 아직 지출이 없어요.</div>`}</div>`
 }
-function privateStayCard(){
- const p=state.privateInfo||{};
+function stayCard(){
+ const p=state.stayInfo||defaults.stayInfo||{};
  const summary=[p.stayName,p.room].filter(Boolean).map(esc).join(" · ");
  const mapUrl=safeExternalUrl(p.mapUrl),guestFormUrl=safeExternalUrl(p.guestFormUrl);
- const hasPrivate=[p.stayName,p.room,p.address,p.bookingCode,p.mapCode,p.mapUrl,p.guestFormUrl].some(Boolean);
  return `<div class="guide-card card">
- <h3>🏠 숙소 정보 <span class="private-badge">🔒 이 기기에만 저장</span></h3>
- <div class="sub">${summary||"공개 파일에는 숙소 상세 정보가 포함되지 않습니다."}</div>
- ${hasPrivate?`<div class="gaddr">${p.address?esc(p.address).replaceAll("\n","<br>"):"주소 미입력"}<br><br><b>🚌 공항에서 가는 법:</b><br>국내선 터미널 <span class="arw">➞</span> 신치토세 공항 리무진 버스 <span class="arw">➞</span> 프리미어 호텔 츠바키(S19) 하차 <span class="arw">➞</span> 도보 800m</div>
+ <h3>🏠 숙소 정보</h3>
+ <div class="sub">${summary||"숙소 정보 미입력"}</div>
+ <div class="gaddr">${p.address?esc(p.address).replaceAll("\n","<br>"):"주소 미입력"}<br><br><b>🚌 공항에서 가는 법:</b><br>국내선 터미널 <span class="arw">➞</span> 신치토세 공항 리무진 버스 <span class="arw">➞</span> 프리미어 호텔 츠바키(S19) 하차 <span class="arw">➞</span> 도보 800m</div>
  <details><summary><span>🔑 체크인 및 예약 정보</span></summary><div class="gbody">
  <div class="groute">예약 번호: <strong>${esc(p.bookingCode)||"미입력"}</strong><br>체크인: <strong>${esc(p.checkinNote)||"미입력"}</strong> · 체크아웃: <strong>${esc(p.checkoutNote)||"미입력"}</strong><br>맵코드: ${esc(p.mapCode)||"미입력"}${mapUrl?` · <a href="${esc(mapUrl)}" target="_blank" rel="noopener">지도 열기</a>`:""}</div>
  ${p.guestNote?`<div class="gmeta"><span class="gwarn">⚠ ${esc(p.guestNote)}</span></div>`:""}
- ${guestFormUrl?`<div class="gmeta"><a href="${esc(guestFormUrl)}" target="_blank" rel="noopener">투숙객 정보 제출 폼</a></div>`:""}
- <div class="gnote">※ 이 정보는 현재 기기의 브라우저 저장소에만 보관됩니다.<br>※ 전체 데이터 백업 JSON에는 비공개 정보도 포함되므로 파일 공유에 주의하세요.</div>
- </div></details>`:`<div class="private-empty">아직 비공개 숙소 정보가 입력되지 않았습니다.<br>배포 후 이 휴대폰에서 한 번만 입력하면 계속 유지됩니다.</div>
- <div class="gaddr"><b>🚌 공항에서 가는 법:</b><br>국내선 터미널 <span class="arw">➞</span> 신치토세 공항 리무진 버스 <span class="arw">➞</span> 프리미어 호텔 츠바키(S19) 하차 <span class="arw">➞</span> 도보 800m</div>`}
- <button class="smallbtn" style="margin-top:11px" onclick="editPrivateInfo()">비공개 숙소 정보 ${hasPrivate?"수정":"입력"}</button>
+ ${guestFormUrl?`<div class="gmeta"><a href="${esc(guestFormUrl)}" target="_blank" rel="noopener">투숙객 정보 제출 폼</a> — 링크를 일행에게 공유하면 각자 제출할 수 있습니다.</div>`:""}
+ <div class="gnote">※ 늦은 체크아웃 시 1일 요금의 2배 청구<br>※ 침구 특별 요청은 체크인 72시간 전까지<br>※ 일회용 칫솔 미제공 — 칫솔을 꼭 챙겨 주세요.</div>
+ </div></details>
+ <button class="smallbtn" style="margin-top:11px" onclick="editStayInfo()">숙소 및 체크인 정보 수정</button>
  </div>`
 }
 function guideRender(){$("guide").innerHTML=`<div class="top"><div><h1>가이드</h1><div class="sub" style="margin-top:4px">삿포로 워케이션 정보 모음</div></div></div>
 <div class="guide">
 
-${privateStayCard()}
+${stayCard()}
 
 <div class="guide-card card">
 <h3>🎫 예약 정보</h3>
@@ -263,20 +290,24 @@ function moreRender(){
  const standalone=window.matchMedia("(display-mode: standalone)").matches;
  $("more").innerHTML=`<div class="top"><h1>기타</h1></div>
  <div class="settingCard card">
- <div class="settingRow" onclick="editTrip()"><span class="settingIcon">✏️</span><div class="settingCopy"><b>여행 정보 수정</b><small>여행명, 일정, 예약번호 수정</small></div><span>›</span></div>
- <div class="settingRow" onclick="editPrivateInfo()"><span class="settingIcon">🔒</span><div class="settingCopy"><b>비공개 숙소 정보</b><small>주소와 예약번호를 이 기기에만 저장</small></div><span>›</span></div>
+ <div class="settingRow" onclick="editTrip()"><span class="settingIcon">✏️</span><div class="settingCopy"><b>여행 정보 수정</b><small>여행명, 기간, 항공 예약번호 수정</small></div><span>›</span></div>
+ <div class="settingRow" onclick="editStayInfo()"><span class="settingIcon">🏠</span><div class="settingCopy"><b>숙소 및 체크인 정보</b><small>현재 기기에 저장된 공통 예약 정보 확인 및 수정</small></div><span>›</span></div>
  ${standalone?"":`<div class="settingRow" onclick="installApp()"><span class="settingIcon">📲</span><div class="settingCopy"><b>홈 화면에 설치</b><small>안드로이드에서 앱처럼 바로 실행</small></div><span>›</span></div>`}
  </div>
- <div style="font-size:12px;color:#7757ae;margin:16px 4px 8px">데이터 관리</div>
+ <div style="font-size:12px;color:#7757ae;margin:16px 4px 8px">데이터 가져오기</div>
  <div class="settingCard card">
- <div class="settingRow" onclick="exportBackup()"><span class="settingIcon">⬇️</span><div class="settingCopy"><b>전체 데이터 백업</b><small>비공개 정보까지 JSON 파일로 저장</small></div><span>↓</span></div>
- <div class="settingRow" onclick="$(\'restoreInput\').click()"><span class="settingIcon">⬆️</span><div class="settingCopy"><b>백업 데이터 복원</b><small>이전에 백업한 데이터를 복원합니다</small></div><span>↑</span></div>
- <div class="settingRow" onclick="deleteTrip()"><span class="settingIcon">🗑️</span><div class="settingCopy"><b class="danger">현재 여행 삭제</b><small>이 여행의 모든 데이터를 삭제합니다</small></div><span>›</span></div>
+ <div class="settingRow" onclick="$('sharedDataInput').click()"><span class="settingIcon">👥</span><div class="settingCopy"><b>공통 여행 데이터 불러오기</b><small>여행·항공편·숙소 및 체크인 JSON</small></div><span>↑</span></div>
+ <div class="settingRow" onclick="$('personalDataInput').click()"><span class="settingIcon">🙋</span><div class="settingCopy"><b>개인 데이터 복원</b><small>일정·준비물·코디·가계부 JSON</small></div><span>↑</span></div>
  </div>
- <div class="offline-note">오프라인 사용을 지원합니다. Chrome의 사이트 데이터 또는 앱 데이터를 직접 삭제하지 않는 한 입력 내용은 이 기기에 유지됩니다. 여행 중 한두 번 백업해 두면 더 안전합니다.</div>
- <div style="font-size:12px;color:#7757ae;margin:16px 4px 8px">여행 메모</div><div class="note card"><textarea id="memoBox" rows="9" placeholder="숙소 주소, 예약 번호, 가고 싶은 곳 등을 적어두세요." oninput="state.trip.memo=this.value;save()">${state.trip.memo||""}</textarea></div>
- <div class="notice">공개 GitHub 파일에는 비공개 숙소 정보가 들어 있지 않습니다. 입력한 데이터는 현재 브라우저에 자동 저장되며, 다른 기기로 옮기려면 백업 파일을 이용해 주세요.</div>`
+ <div style="font-size:12px;color:#7757ae;margin:16px 4px 8px">개인 데이터 관리</div>
+ <div class="settingCard card">
+ <div class="settingRow" onclick="exportPersonalBackup()"><span class="settingIcon">⬇️</span><div class="settingCopy"><b>개인 데이터 백업</b><small>일정·준비물·코디·가계부만 저장</small></div><span>↓</span></div>
+ <div class="settingRow" onclick="deleteTrip()"><span class="settingIcon">🗑️</span><div class="settingCopy"><b class="danger">현재 기기 데이터 초기화</b><small>불러온 공통 데이터와 개인 데이터를 모두 삭제</small></div><span>›</span></div>
+ </div>
+ <div class="offline-note">공통 JSON과 개인 JSON은 GitHub에 저장되지 않습니다. 한 번 불러오면 Chrome의 사이트 데이터를 직접 삭제하지 않는 한 이 기기에 유지됩니다.</div>
+ <div class="notice">공통 여행 데이터는 동행자 모두가 같은 파일을 불러오고, 일정·준비물·가계부는 각자 별도의 개인 데이터로 관리합니다.</div>`
 }
+
 function openScheduleSheet(){$("sheetbody").innerHTML=`<h3>새 일정 추가</h3><div class="sheetgrid"><input id="stime" type="time" value="19:00"><input id="stitle" placeholder="일정 이름"><input id="smemo" placeholder="장소 또는 메모"></div><div class="sheetactions"><button class="secondary" onclick="closeSheet()">취소</button><button class="primary" onclick="saveSchedule()">추가</button></div>`;$("sheetback").classList.add("show")}
 function closeSheet(){$("sheetback").classList.remove("show")}
 function saveSchedule(){const title=$("stitle").value.trim();if(!title)return toastMsg("일정 이름을 입력해 주세요");(state.schedules[day]??=[]).push({time:$("stime").value||"19:00",title,memo:$("smemo").value.trim()});save();closeSheet();scheduleRender();toastMsg("일정을 추가했어요")}
@@ -419,9 +450,9 @@ function deleteExpense(i){
  if(!confirm("이 지출을 삭제할까요?"))return;
  state.expenses.splice(i,1);save();ledgerRender();toastMsg("지출을 삭제했어요")
 }
-function editPrivateInfo(){
- const p=state.privateInfo||defaults.privateInfo;
- $("sheetbody").innerHTML=`<h3>비공개 숙소 정보</h3><div class="sub" style="margin-bottom:12px">이 휴대폰의 브라우저에만 저장됩니다.</div><div class="sheetgrid">
+function editStayInfo(){
+ const p=state.stayInfo||defaults.stayInfo||{};
+ $("sheetbody").innerHTML=`<h3>숙소 및 체크인 정보</h3><div class="sub" style="margin-bottom:12px">기본값은 동행자 공통 데이터이며, 여기서 수정하면 현재 기기에만 반영됩니다.</div><div class="sheetgrid">
  <input id="pstay" value="${esc(p.stayName)}" placeholder="숙소명">
  <input id="proom" value="${esc(p.room)}" placeholder="객실 정보">
  <textarea id="paddr" rows="3" placeholder="숙소 주소">${esc(p.address)}</textarea>
@@ -432,19 +463,43 @@ function editPrivateInfo(){
  <input id="pcheckin" value="${esc(p.checkinNote)}" placeholder="체크인 안내">
  <input id="pcheckout" value="${esc(p.checkoutNote)}" placeholder="체크아웃 안내">
  <input id="pguestnote" value="${esc(p.guestNote)}" placeholder="투숙객 제출 메모">
- </div><div class="sheetactions"><button class="secondary" onclick="closeSheet()">취소</button><button class="primary" onclick="savePrivateInfo()">저장</button></div>`;
+ </div><div class="sheetactions"><button class="secondary" onclick="closeSheet()">취소</button><button class="primary" onclick="saveStayInfo()">저장</button></div>`;
  $("sheetback").classList.add("show")
 }
-function savePrivateInfo(){
- state.privateInfo={stayName:$("pstay").value.trim(),room:$("proom").value.trim(),address:$("paddr").value.trim(),bookingCode:$("pbook").value.trim(),mapCode:$("pmapcode").value.trim(),mapUrl:$("pmapurl").value.trim(),guestFormUrl:$("pguesturl").value.trim(),checkinNote:$("pcheckin").value.trim(),checkoutNote:$("pcheckout").value.trim(),guestNote:$("pguestnote").value.trim()};
- save();closeSheet();guideRender();moreRender();toastMsg("비공개 숙소 정보를 저장했어요")
+function saveStayInfo(){
+ state.stayInfo={stayName:$("pstay").value.trim(),room:$("proom").value.trim(),address:$("paddr").value.trim(),bookingCode:$("pbook").value.trim(),mapCode:$("pmapcode").value.trim(),mapUrl:$("pmapurl").value.trim(),guestFormUrl:$("pguesturl").value.trim(),checkinNote:$("pcheckin").value.trim(),checkoutNote:$("pcheckout").value.trim(),guestNote:$("pguestnote").value.trim()};
+ save();closeSheet();guideRender();moreRender();toastMsg("숙소 및 체크인 정보를 저장했어요")
 }
 function editBudget(){const n=Number(prompt("총 예산을 입력하세요",state.budget));if(!n)return;state.budget=n;save();ledgerRender()}
 function editTrip(){$("sheetbody").innerHTML=`<h3>여행 정보 수정</h3><div class="sheetgrid"><input id="tname" value="${state.trip.name}"><input id="tstart" type="date" value="${state.trip.start}"><input id="tend" type="date" value="${state.trip.end}"><input id="tbook" value="${state.trip.booking||""}" placeholder="예약번호"><select id="tcurrency"><option ${state.trip.currency==="₩"?"selected":""}>₩</option><option ${state.trip.currency==="¥"?"selected":""}>¥</option><option ${state.trip.currency==="$"?"selected":""}>$</option><option ${state.trip.currency==="€"?"selected":""}>€</option></select></div><div class="sheetactions"><button class="secondary" onclick="closeSheet()">취소</button><button class="primary" onclick="saveTripEdit()">저장</button></div>`;$("sheetback").classList.add("show")}
 function saveTripEdit(){state.trip.name=$("tname").value.trim()||state.trip.name;state.trip.start=$("tstart").value;state.trip.end=$("tend").value;state.trip.booking=$("tbook").value.trim();state.trip.currency=$("tcurrency").value;day=state.trip.start;ledgerDay=state.trip.start;save();closeSheet();homeRender();moreRender();toastMsg("여행 정보를 수정했어요")}
-function exportBackup(){const blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="sapporo-trip-backup.json";a.click();URL.revokeObjectURL(a.href)}
-$("restoreInput").addEventListener("change",async e=>{const f=e.target.files[0];if(!f)return;try{state=normalizeState(JSON.parse(await f.text()));day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("백업을 복원했어요")}catch{toastMsg("복원할 수 없는 파일이에요")}e.target.value=""})
-function deleteTrip(){if(!confirm("현재 여행의 모든 데이터를 삭제할까요?"))return;state=clone(defaults);day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("기본 데이터로 초기화했어요")}
+function exportPersonalBackup(){
+ const personalData={type:"trip-log-personal-data",version:1,schedules:state.schedules,packing:state.packing,outfits:state.outfits,budget:state.budget,expenses:state.expenses};
+ const blob=new Blob([JSON.stringify(personalData,null,2)],{type:"application/json"}),a=document.createElement("a");
+ a.href=URL.createObjectURL(blob);a.download="sapporo-trip-personal-data.json";a.click();URL.revokeObjectURL(a.href)
+}
+$("sharedDataInput").addEventListener("change",async e=>{
+ const f=e.target.files[0];if(!f)return;
+ try{
+  const shared=normalizeSharedImport(JSON.parse(await f.text()));
+  state.trip=shared.trip;state.flights=shared.flights;state.stayInfo=shared.stayInfo;state.sharedDataLoaded=true;
+  day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("공통 여행 데이터를 불러왔어요")
+ }catch(error){console.error(error);toastMsg("공통 여행 데이터 파일을 확인해 주세요")}
+ e.target.value=""
+});
+$("personalDataInput").addEventListener("change",async e=>{
+ const f=e.target.files[0];if(!f)return;
+ try{
+  const personal=normalizePersonalImport(JSON.parse(await f.text()));
+  state.schedules=personal.schedules;state.packing=personal.packing;state.outfits=personal.outfits;state.budget=personal.budget;state.expenses=personal.expenses;
+  day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("개인 데이터를 복원했어요")
+ }catch(error){console.error(error);toastMsg("개인 데이터 파일을 확인해 주세요")}
+ e.target.value=""
+});
+function deleteTrip(){
+ if(!confirm("현재 기기에 저장된 공통 여행 데이터와 개인 데이터를 모두 삭제할까요?"))return;
+ localStorage.removeItem(KEY);state=normalizeState({});day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("현재 기기 데이터를 초기화했어요")
+}
 function drag(id,list){const c=$(id);if(!c)return;let d;c.querySelectorAll(".draggable").forEach(el=>{el.ondragstart=()=>{d=el;el.classList.add("dragging")};el.ondragend=()=>{el.classList.remove("dragging");state.schedules[day]=[...c.querySelectorAll(".draggable")].map(x=>list[+x.dataset.i]);save()};el.ondragover=e=>{e.preventDefault();const a=[...c.querySelectorAll(".draggable:not(.dragging)")].find(x=>e.clientY<x.getBoundingClientRect().top+x.offsetHeight/2);a?c.insertBefore(d,a):c.appendChild(d)}})}
 function go(id){document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id===id));function goPage(name){
  document.querySelectorAll(".page").forEach(x=>x.classList.toggle("active",x.id===name));
@@ -470,14 +525,9 @@ async function installApp(){
 if("serviceWorker" in navigator){window.addEventListener("load",()=>navigator.serviceWorker.register("./sw.js").catch(()=>{}))}
 if(navigator.storage?.persist){navigator.storage.persist().catch(()=>{})}
 
-async function bootstrap(){
- try{
-  defaults=await loadDefaults();state=load();day=state.trip.start;ledgerDay=state.trip.start;
-  document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>go(b.dataset.p));
-  renderAll()
- }catch(error){
-  console.error(error);
-  document.querySelector(".shell").innerHTML='<section class="page active"><div class="card" style="padding:24px"><h1>데이터를 불러오지 못했어요</h1><p class="sub" style="line-height:1.7">GitHub Pages에서 접속했는지 확인한 뒤 새로고침해 주세요.</p></div></section>'
- }
+function bootstrap(){
+ defaults=clone(EMPTY_DEFAULTS);state=load();day=state.trip.start;ledgerDay=state.trip.start;save();
+ document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>go(b.dataset.p));
+ renderAll()
 }
 bootstrap();

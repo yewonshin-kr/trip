@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Trip Log">
 <title>삿포로 Trip Log</title>
-<link rel="stylesheet" href="./styles.css?v=4">
+<link rel="stylesheet" href="./styles.css?v=6">
 </head>
 <body>
 <div class="shell">
@@ -30,8 +30,9 @@
 <button data-p="more"><svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg><span>기타</span></button>
 </nav>
 <div id="sheetback" class="sheetback" onclick="if(event.target===this)closeSheet()"><div class="sheet"><div class="handle"></div><div id="sheetbody"></div></div></div>
-<input id="restoreInput" type="file" accept="application/json" hidden>
+<input id="sharedDataInput" type="file" accept="application/json,.json" hidden>
+<input id="personalDataInput" type="file" accept="application/json,.json" hidden>
 <div id="toast" class="toast"></div>
-<script src="./app.js?v=4" defer></script>
+<script src="./app.js?v=6" defer></script>
 </body>
 </html>
