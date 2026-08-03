@@ -1,7 +1,10 @@
-const CACHE_NAME = "sapporo-trip-v1";
+const CACHE_NAME = "sapporo-trip-v4";
 const APP_SHELL = [
   "./",
   "./index.html",
+  "./styles.css?v=4",
+  "./app.js?v=4",
+  "./data/trip-data.json?v=4",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png"
