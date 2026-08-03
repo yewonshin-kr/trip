@@ -6,7 +6,7 @@ const EMPTY_DEFAULTS={
  stayInfo:{stayName:"",room:"",address:"",bookingCode:"",mapCode:"",mapUrl:"",guestFormUrl:"",checkinNote:"",checkoutNote:"",guestNote:""},
  sharedDataLoaded:false
 };
-let defaults=null,state=null,day="",expenseCat="식비",ledgerDay="";
+let defaults=null,state=null,day="",expenseCat="식비",ledgerDay="",packingCategoryId="";
 function clone(x){return JSON.parse(JSON.stringify(x))}
 function esc(value){return String(value??"").replace(/[&<>"']/g,ch=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[ch]))}
 function safeExternalUrl(value){try{const u=new URL(String(value||""));return ["https:","http:"].includes(u.protocol)?u.href:""}catch{return ""}}
@@ -134,45 +134,72 @@ function moveScheduleDay(offset){
  if(next<0||next>=all.length){toastMsg(offset>0?"마지막 날짜예요":"첫 번째 날짜예요");return}
  day=all[next];scheduleRender()
 }
-function bindScheduleSwipe(){
- const area=$("scheduleSwipeArea");if(!area)return;
- let startX=0,startY=0,tracking=false;
+function bindHorizontalPageSwipe(elementId,onSwipe){
+ const area=$(elementId);if(!area)return;
+ area.__horizontalSwipeHandler=onSwipe;
+ if(area.__horizontalSwipeBound)return;
+ area.__horizontalSwipeBound=true;
+ let startX=0,startY=0,tracking=false,pointerId=null,suppressClick=false;
  area.addEventListener("pointerdown",event=>{
-  if(event.target.closest("button,input,textarea,select,a"))return;
-  tracking=true;startX=event.clientX;startY=event.clientY
+  if(event.pointerType==="mouse"&&event.button!==0)return;
+  tracking=true;pointerId=event.pointerId;startX=event.clientX;startY=event.clientY;
  });
  area.addEventListener("pointerup",event=>{
-  if(!tracking)return;tracking=false;
+  if(!tracking||event.pointerId!==pointerId)return;
+  tracking=false;pointerId=null;
   const dx=event.clientX-startX,dy=event.clientY-startY;
   if(Math.abs(dx)<55||Math.abs(dx)<=Math.abs(dy)*1.2)return;
-  moveScheduleDay(dx<0?1:-1)
+  const handler=area.__horizontalSwipeHandler;
+  if(typeof handler!=="function")return;
+  suppressClick=true;event.preventDefault();setTimeout(()=>{suppressClick=false},400);setTimeout(()=>handler(dx<0?1:-1),0)
  });
- area.addEventListener("pointercancel",()=>{tracking=false});
+ area.addEventListener("pointercancel",()=>{tracking=false;pointerId=null});
+ area.addEventListener("click",event=>{
+  if(!suppressClick)return;
+  suppressClick=false;event.preventDefault();event.stopPropagation()
+ },true);
 }
 function scheduleRender(){
  const list=state.schedules[day]||[];
  $("schedule").innerHTML=`<div class="top"><h1>일정</h1><button class="plus" onclick="openScheduleSheet()">＋</button></div>
  <div id="scheduleDates" class="dates">${dates().map(d=>`<button class="chip ${d===day?"active":""}" onclick="setScheduleDay('${d}')">${short(d)}</button>`).join("")}</div>
- <div id="scheduleSwipeArea" class="schedule-swipe-area">
-  <div class="swipe-hint">화면을 좌우로 넘겨 날짜를 변경할 수 있어요</div>
-  <div class="schedule card">${list.length?list.map((x,i)=>`<div class="row">
-   <span class="time">${esc(x.time)}</span><div class="copy"><b>${esc(x.title)}</b><small>${esc(x.memo||"")}</small></div>
-   <div class="rowactions"><button class="editbtn" onclick="editSchedule(${i})">편집</button><button class="deletebtn" onclick="deleteSchedule(${i})">삭제</button></div></div>`).join(""):`<div class="sub" style="padding:30px;text-align:center">일정이 없어요.</div>`}</div>
- </div>
+ <div class="swipe-hint">페이지 어디서든 좌우로 넘겨 날짜를 변경할 수 있어요</div>
+ <div class="schedule card">${list.length?list.map((x,i)=>`<div class="row">
+  <span class="time">${esc(x.time)}</span><div class="copy"><b>${esc(x.title)}</b><small>${esc(x.memo||"")}</small></div>
+  <div class="rowactions"><button class="editbtn" onclick="editSchedule(${i})">편집</button><button class="deletebtn" onclick="deleteSchedule(${i})">삭제</button></div></div>`).join(""):`<div class="sub" style="padding:30px;text-align:center">일정이 없어요.</div>`}</div>
  <button class="bigbtn" onclick="openScheduleSheet()">＋ 일정 추가</button>`;
- bindScheduleSwipe();
+ $("schedule").classList.add("page-swipe");
+ bindHorizontalPageSwipe("schedule",moveScheduleDay);
  requestAnimationFrame(()=>$("scheduleDates")?.querySelector(".active")?.scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"}))
 }
+function orderedPackingCategories(){
+ return [...state.packing].sort((a,b)=>a.id==="outfits"?-1:(b.id==="outfits"?1:0))
+}
+function ensurePackingCategory(categories=orderedPackingCategories()){
+ if(!categories.length){packingCategoryId="";return null}
+ if(!categories.some(c=>c.id===packingCategoryId))packingCategoryId=categories[0].id;
+ return categories.find(c=>c.id===packingCategoryId)||categories[0]
+}
+function setPackingCategory(id){packingCategoryId=id;packingRender()}
+function movePackingCategory(offset){
+ const categories=orderedPackingCategories(),current=categories.findIndex(c=>c.id===packingCategoryId),next=current+offset;
+ if(next<0||next>=categories.length){toastMsg(offset>0?"마지막 카테고리예요":"첫 번째 카테고리예요");return}
+ packingCategoryId=categories[next].id;packingRender()
+}
+function packingCategoryCard(c){
+ const count=c.id==="outfits"?dates().length:(c.items||[]).filter(x=>x.done).length+" / "+(c.items||[]).length;
+ const body=c.id==="outfits"?dates().map((d,i)=>`<div class="row outfitrow"><span class="time">${short(d)}</span><div class="copy"><b>${esc(state.outfits[i]||"코디 미정")}</b></div><div class="rowactions"><button class="editbtn" onclick="editOutfit(${i})">편집</button></div></div>`).join(""):(c.items||[]).map((x,i)=>`<div class="row"><input class="check" type="checkbox" ${x.done?"checked":""} onchange="togglePack('${c.id}',${i},this.checked)"><div class="copy"><b>${esc(x.t)}</b></div><div class="rowactions"><button class="editbtn" onclick="editPackItem('${c.id}',${i})">편집</button><button class="deletebtn" onclick="deletePackItem('${c.id}',${i})">삭제</button></div></div>`).join("");
+ const addRow=c.id==="outfits"?"":`<div class="addrow"><input id="in-${c.id}" placeholder="${esc(c.name)} 항목 추가" onkeydown="if(event.key==='Enter')addItem('${c.id}')"><button class="smallbtn" onclick="addItem('${c.id}')">추가</button></div>`;
+ return `<div id="cat-${c.id}" class="cat card active-category-card"><div class="cathead"><h3>${esc(c.icon)} ${esc(c.name)}</h3><div class="catmeta"><span class="count">${count}</span><div class="category-actions"><button class="editbtn" onclick="editPackingCategory('${c.id}')">카테고리 편집</button><button class="deletebtn" onclick="deletePackingCategory('${c.id}')">삭제</button></div></div></div>${body}${addRow}</div>`
+}
 function packingRender(){
- const packingCats=[...state.packing].sort((a,b)=>a.id==="outfits"?-1:(b.id==="outfits"?1:0));
- const categories=packingCats.length?`<div class="jump">${packingCats.map((c,i)=>`<button class="chip ${i===0?"active":""}" onclick="$('cat-${c.id}').scrollIntoView({behavior:'smooth'})">${esc(c.icon)}<br>${esc(c.name)}</button>`).join("")}</div>`:"";
- const cards=packingCats.length?packingCats.map(c=>{
-  const count=c.id==="outfits"?dates().length:(c.items||[]).filter(x=>x.done).length+" / "+(c.items||[]).length;
-  const body=c.id==="outfits"?dates().map((d,i)=>`<div class="row outfitrow"><span class="time">${short(d)}</span><div class="copy"><b>${esc(state.outfits[i]||"코디 미정")}</b></div><div class="rowactions"><button class="editbtn" onclick="editOutfit(${i})">편집</button></div></div>`).join(""):(c.items||[]).map((x,i)=>`<div class="row"><input class="check" type="checkbox" ${x.done?"checked":""} onchange="togglePack('${c.id}',${i},this.checked)"><div class="copy"><b>${esc(x.t)}</b></div><div class="rowactions"><button class="editbtn" onclick="editPackItem('${c.id}',${i})">편집</button><button class="deletebtn" onclick="deletePackItem('${c.id}',${i})">삭제</button></div></div>`).join("");
-  const addRow=c.id==="outfits"?"":`<div class="addrow"><input id="in-${c.id}" placeholder="${esc(c.name)} 항목 추가" onkeydown="if(event.key==='Enter')addItem('${c.id}')"><button class="smallbtn" onclick="addItem('${c.id}')">추가</button></div>`;
-  return `<div id="cat-${c.id}" class="cat card"><div class="cathead"><h3>${esc(c.icon)} ${esc(c.name)}</h3><div class="catmeta"><span class="count">${count}</span><div class="category-actions"><button class="editbtn" onclick="editPackingCategory('${c.id}')">카테고리 편집</button><button class="deletebtn" onclick="deletePackingCategory('${c.id}')">삭제</button></div></div></div>${body}${addRow}</div>`
- }).join(""):`<div class="card category-empty">아직 준비물 카테고리가 없어요.<br>상단의 ‘카테고리 추가’를 눌러 만들어 주세요.</div>`;
- $("packing").innerHTML=`<div class="top"><div><h1>준비물</h1><div class="sub" style="margin-top:4px">${state.trip.start} ~ ${state.trip.end}</div></div><div class="top-actions"><button class="smallbtn" onclick="openPackingCategorySheet()">＋ 카테고리</button></div></div>${categories}${cards}`
+ const packingCats=orderedPackingCategories(),activeCat=ensurePackingCategory(packingCats);
+ const categories=packingCats.length?`<div id="packingCategories" class="jump">${packingCats.map(c=>`<button class="chip ${c.id===packingCategoryId?"active":""}" onclick="setPackingCategory('${c.id}')">${esc(c.icon)}<br>${esc(c.name)}</button>`).join("")}</div>`:"";
+ const card=activeCat?packingCategoryCard(activeCat):`<div class="card category-empty">아직 준비물 카테고리가 없어요.<br>상단의 ‘카테고리 추가’를 눌러 만들어 주세요.</div>`;
+ $("packing").innerHTML=`<div class="top"><div><h1>준비물</h1><div class="sub" style="margin-top:4px">${state.trip.start} ~ ${state.trip.end}</div></div><div class="top-actions"><button class="smallbtn" onclick="openPackingCategorySheet()">＋ 카테고리</button></div></div>${categories}${packingCats.length>1?`<div class="swipe-hint">페이지 어디서든 좌우로 넘겨 카테고리를 변경할 수 있어요</div>`:""}${card}`;
+ $("packing").classList.add("page-swipe");
+ bindHorizontalPageSwipe("packing",packingCats.length>1?movePackingCategory:null);
+ requestAnimationFrame(()=>$("packingCategories")?.querySelector(".active")?.scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"}))
 }
 function ledgerRender(){
  const totalSpent=state.expenses.reduce((a,b)=>a+b.amount,0);
@@ -332,7 +359,7 @@ function savePackingCategory(){
  const name=$("catname").value.trim(),icon=$("caticon").value.trim()||"📦";
  if(!name)return toastMsg("카테고리명을 입력해 주세요");
  const id=`cat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
- state.packing.push({id,icon,name,items:[]});save();closeSheet();packingRender();toastMsg("카테고리를 추가했어요")
+ state.packing.push({id,icon,name,items:[]});packingCategoryId=id;save();closeSheet();packingRender();toastMsg("카테고리를 추가했어요")
 }
 function editPackingCategory(id){
  const cat=state.packing.find(c=>c.id===id);if(!cat)return;
@@ -349,7 +376,11 @@ function deletePackingCategory(id){
  const itemCount=(cat.items||[]).length;
  const detail=itemCount?` 안의 준비물 ${itemCount}개도 함께 삭제됩니다.`:"";
  if(!confirm(`“${cat.name}” 카테고리를 삭제할까요?${detail}`))return;
- state.packing=state.packing.filter(c=>c.id!==id);save();packingRender();toastMsg("카테고리를 삭제했어요")
+ const categories=orderedPackingCategories(),index=categories.findIndex(c=>c.id===id);
+ state.packing=state.packing.filter(c=>c.id!==id);
+ const remaining=orderedPackingCategories();
+ packingCategoryId=remaining[Math.min(index,remaining.length-1)]?.id||"";
+ save();packingRender();toastMsg("카테고리를 삭제했어요")
 }
 function togglePack(id,i,v){state.packing.find(c=>c.id===id).items[i].done=v;save();packingRender()}
 function addItem(id){const el=$("in-"+id),v=el.value.trim();if(!v)return;state.packing.find(c=>c.id===id).items.push({t:v,done:false});save();packingRender()}
@@ -492,13 +523,13 @@ $("personalDataInput").addEventListener("change",async e=>{
  try{
   const personal=normalizePersonalImport(JSON.parse(await f.text()));
   state.schedules=personal.schedules;state.packing=personal.packing;state.outfits=personal.outfits;state.budget=personal.budget;state.expenses=personal.expenses;
-  day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("개인 데이터를 복원했어요")
+  packingCategoryId="";day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("개인 데이터를 복원했어요")
  }catch(error){console.error(error);toastMsg("개인 데이터 파일을 확인해 주세요")}
  e.target.value=""
 });
 function deleteTrip(){
  if(!confirm("현재 기기에 저장된 공통 여행 데이터와 개인 데이터를 모두 삭제할까요?"))return;
- localStorage.removeItem(KEY);state=normalizeState({});day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("현재 기기 데이터를 초기화했어요")
+ localStorage.removeItem(KEY);state=normalizeState({});packingCategoryId="";day=state.trip.start;ledgerDay=state.trip.start;save();renderAll();toastMsg("현재 기기 데이터를 초기화했어요")
 }
 function drag(id,list){const c=$(id);if(!c)return;let d;c.querySelectorAll(".draggable").forEach(el=>{el.ondragstart=()=>{d=el;el.classList.add("dragging")};el.ondragend=()=>{el.classList.remove("dragging");state.schedules[day]=[...c.querySelectorAll(".draggable")].map(x=>list[+x.dataset.i]);save()};el.ondragover=e=>{e.preventDefault();const a=[...c.querySelectorAll(".draggable:not(.dragging)")].find(x=>e.clientY<x.getBoundingClientRect().top+x.offsetHeight/2);a?c.insertBefore(d,a):c.appendChild(d)}})}
 function go(id){document.querySelectorAll(".page").forEach(p=>p.classList.toggle("active",p.id===id));function goPage(name){
