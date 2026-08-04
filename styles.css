@@ -183,16 +183,28 @@ html,body{background:#dfe7eb;color:var(--ink)}
 .private-empty{margin-top:10px;padding:14px;border:1px dashed #cbd7de;border-radius:14px;background:#f8fafb;color:var(--muted);font-size:12.5px;line-height:1.7}
 .offline-note{padding:13px 15px;margin-top:12px;background:#eef6f8;border:1px solid #d5e6eb;border-radius:16px;color:#31586a;font-size:11.5px;line-height:1.65}
 
-/* ===== 일정 스와이프 · 준비물 카테고리 관리 ===== */
-.swipe-hint{text-align:center;margin:9px 0 2px;color:var(--muted);font-size:10.5px}
+/* ===== v8 interaction and editors ===== */
 .cathead{gap:8px}.cathead h3{flex:1;min-width:0}
 .catmeta{display:flex;align-items:center;gap:6px;flex:0 0 auto}
 .category-actions{display:flex;gap:5px}
 .category-empty{padding:34px 18px;text-align:center;color:var(--muted);font-size:13px;line-height:1.7}
 .top-actions{display:flex;align-items:center;gap:8px}
-.top-actions .smallbtn{white-space:nowrap}
-
-/* ===== v7: 페이지 전체 스와이프 ===== */
-.page.page-swipe{touch-action:pan-y;user-select:none;-webkit-user-select:none}
-.page.page-swipe .dates,.page.page-swipe .jump{touch-action:pan-y}
-.active-category-card{min-height:180px}
+.swipe-zone{touch-action:pan-y}
+.schedule-swipe-zone{min-height:55vh;padding-top:1px}
+.packing-list{padding-top:1px}
+.packing-category-card{margin-bottom:12px;scroll-margin-top:84px}
+.flight-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.flight-title-row .label{margin-bottom:4px}
+.fast-title{display:flex;align-items:center;justify-content:space-between;gap:12px}
+.choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.choice-card{min-height:130px;padding:18px 12px;border:1px solid var(--line);border-radius:18px;background:#f8fafb;text-align:left}
+.choice-card span{display:block;font-size:24px;margin-bottom:14px;color:#ff6b4a}
+.choice-card b{display:block;font-size:14px}
+.choice-card small{display:block;margin-top:6px;color:var(--muted);font-size:11px;line-height:1.5}
+.sheet-close-wide{width:100%;margin-top:12px;padding:12px;border-radius:14px;font-weight:900}
+.field-label{display:grid;gap:6px;color:var(--muted);font-size:11px;font-weight:800}
+.field-label input{color:var(--ink);font-weight:500}
+.manage-list{display:grid;gap:8px}
+.manage-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center}
+.sheet{max-height:90vh;overflow-y:auto}
+@media(max-width:380px){.choice-grid{grid-template-columns:1fr}.manage-row{grid-template-columns:minmax(0,1fr) auto}.manage-row .deletebtn{grid-column:2}}
