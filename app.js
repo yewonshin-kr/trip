@@ -225,7 +225,8 @@ function packingCategoryCard(c){
  const count=c.id==="outfits"?dates().length:(c.items||[]).filter(x=>x.done).length+" / "+(c.items||[]).length;
  const body=c.id==="outfits"?dates().map((d,i)=>`<div class="row outfitrow"><span class="time">${short(d)}</span><div class="copy"><b>${esc(state.outfits[i]||"코디 미정")}</b></div><div class="rowactions"><button class="editbtn" onclick="editOutfit(${i})">편집</button></div></div>`).join(""):(c.items||[]).map((x,i)=>`<div class="row"><input class="check" type="checkbox" ${x.done?"checked":""} onchange="togglePack('${c.id}',${i},this.checked)"><div class="copy"><b>${esc(x.t)}</b></div><div class="rowactions"><button class="editbtn" onclick="editPackItem('${c.id}',${i})">편집</button><button class="deletebtn" onclick="deletePackItem('${c.id}',${i})">삭제</button></div></div>`).join("");
  const empty=!body?`<div class="sub" style="padding:24px;text-align:center">등록된 항목이 없어요.</div>`:"";
- return `<div id="cat-${c.id}" class="cat card packing-category-card"><div class="cathead"><h3>${esc(c.icon)} ${esc(c.name)}</h3><div class="catmeta"><span class="count" data-count-id="${c.id}">${count}</span><div class="category-actions"><button class="editbtn" onclick="editPackingCategory('${c.id}')">편집</button><button class="deletebtn" onclick="deletePackingCategory('${c.id}')">삭제</button></div></div></div>${body}${empty}</div>`
+ const addRow=c.id==="outfits"?"":`<div class="addrow category-inline-add"><input id="in-${c.id}" placeholder="${esc(c.name)} 항목 추가" onkeydown="if(event.key==='Enter')addPackingItemInline('${c.id}')"><button class="editbtn" onclick="addPackingItemInline('${c.id}')">추가</button></div>`;
+ return `<div id="cat-${c.id}" class="cat card packing-category-card"><div class="cathead"><h3>${esc(c.icon)} ${esc(c.name)}</h3><div class="catmeta"><span class="count" data-count-id="${c.id}">${count}</span><div class="category-actions"><button class="editbtn" onclick="editPackingCategory('${c.id}')">편집</button><button class="deletebtn" onclick="deletePackingCategory('${c.id}')">삭제</button></div></div></div>${body}${empty}${addRow}</div>`
 }
 function packingRender(){
  const packingCats=orderedPackingCategories();ensurePackingCategory(packingCats);
@@ -239,7 +240,13 @@ function packingRender(){
 function expenseCategoryOptions(selected){
  return state.expenseCategories.map(category=>`<option ${category===selected?"selected":""}>${esc(category)}</option>`).join("")
 }
-function setExpenseCategory(value){expenseCat=value;ledgerRender()}
+function setExpenseCategory(value){
+ if(!state.expenseCategories.includes(value))return;
+ expenseCat=value;
+ document.querySelectorAll("#ledger .fastcats [data-expense-category]").forEach(button=>button.classList.toggle("active",button.dataset.expenseCategory===value));
+ const amountInput=$("amt");
+ if(amountInput)amountInput.placeholder=`${short(ledgerDay)} · ${expenseCat} 금액`
+}
 function ledgerRender(){
  if(!state.expenseCategories.includes(expenseCat))expenseCat=state.expenseCategories[0]||"기타";
  const totalSpent=state.expenses.reduce((a,b)=>a+b.amount,0);
@@ -264,7 +271,8 @@ function ledgerRender(){
  <div class="dates">${dates().map(d=>`<button class="chip ${d===ledgerDay?"active":""}" onclick="ledgerDay='${d}';ledgerRender()">${short(d)}</button>`).join("")}</div>
  <div class="card" style="padding:15px;margin-top:11px"><div><span class="sub">${short(ledgerDay)} 지출</span><div class="amount" style="font-size:23px">${money(dailySpent)}</div></div></div>
  <div class="fast card"><div class="fast-title"><b>빠른 입력</b><button class="addlink" onclick="openExpenseCategoryManager()">카테고리 편집</button></div><div class="fastcats">${state.expenseCategories.map(c=>`<button class="${expenseCat===c?"active":""}" data-expense-category="${esc(c)}" onclick="setExpenseCategory(this.dataset.expenseCategory)">${esc(c)}</button>`).join("")}</div><div class="fastrow"><input id="amt" type="number" inputmode="numeric" placeholder="${short(ledgerDay)} · ${esc(expenseCat)} 금액"><button onclick="addExpense()">저장</button></div></div>
- <div class="expenses card">${daily.length?daily.map(e=>{const idx=state.expenses.indexOf(e);return `<div class="exp"><div class="copy"><b>${esc(e.title)}</b><small>${esc(e.time)} · ${esc(e.cat)}</small></div><strong>${money(e.amount)}</strong><div class="rowactions" style="margin-left:8px"><button class="editbtn" onclick="editExpense(${idx})">편집</button><button class="deletebtn" onclick="deleteExpense(${idx})">삭제</button></div></div>`}).join(""):`<div class="sub" style="padding:28px;text-align:center">이 날짜에는 아직 지출이 없어요.</div>`}</div>`
+ <div class="expenses card">${daily.length?daily.map(e=>{const idx=state.expenses.indexOf(e);return `<div class="exp"><div class="copy"><b>${esc(e.title)}</b><small>${esc(e.time)} · ${esc(e.cat)}</small></div><strong>${money(e.amount)}</strong><div class="rowactions" style="margin-left:8px"><button class="editbtn" onclick="editExpense(${idx})">편집</button><button class="deletebtn" onclick="deleteExpense(${idx})">삭제</button></div></div>`}).join(""):`<div class="sub" style="padding:28px;text-align:center">이 날짜에는 아직 지출이 없어요.</div>`}</div>`;
+ requestAnimationFrame(()=>$('ledger')?.querySelector('.fastcats button.active')?.scrollIntoView({behavior:'smooth',inline:'nearest',block:'nearest'}))
 }
 function stayCard(){
  const p=state.stayInfo||defaults.stayInfo||{};
@@ -413,6 +421,12 @@ function savePackingCategory(){
  const id=`cat-${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`;
  state.packing.push({id,icon,name,items:[]});packingCategoryId=id;save();closeSheet();packingRender();requestAnimationFrame(()=>setPackingCategory(id));toastMsg("카테고리를 추가했어요")
 }
+function addPackingItemInline(id){
+ const input=$("in-"+id),value=input?.value.trim(),cat=state.packing.find(category=>category.id===id);
+ if(!cat)return;
+ if(!value)return toastMsg("준비물 이름을 입력해 주세요");
+ cat.items.push({t:value,done:false});packingCategoryId=id;save();packingRender();requestAnimationFrame(()=>setPackingCategory(id));toastMsg("준비물을 추가했어요")
+}
 function openPackingItemSheet(categoryId=packingCategoryId){
  const categories=orderedPackingCategories().filter(category=>category.id!=="outfits");
  if(!categories.length){openPackingCategorySheet();toastMsg("아이템을 담을 카테고리를 먼저 만들어 주세요");return}
@@ -512,7 +526,7 @@ function addExpense(){
 }
 function openExpenseCategoryManager(){renderExpenseCategoryManager();showSheet()}
 function renderExpenseCategoryManager(){
- $("sheetbody").innerHTML=`<h3>가계부 카테고리 편집</h3><div class="manage-list">${state.expenseCategories.map((category,index)=>`<div class="manage-row"><input id="expense-cat-${index}" value="${esc(category)}"><button class="editbtn" onclick="saveExpenseCategoryEdit(${index})">저장</button><button class="deletebtn" onclick="deleteExpenseCategory(${index})">삭제</button></div>`).join("")}</div><div class="addrow"><input id="newExpenseCategory" placeholder="새 카테고리" onkeydown="if(event.key==='Enter')addExpenseCategory()"><button class="smallbtn" onclick="addExpenseCategory()">추가</button></div><button class="secondary sheet-close-wide" onclick="closeSheet()">닫기</button>`
+ $("sheetbody").innerHTML=`<h3>가계부 카테고리 편집</h3><div class="manage-list">${state.expenseCategories.map((category,index)=>`<div class="manage-row"><input id="expense-cat-${index}" value="${esc(category)}"><button class="editbtn" onclick="saveExpenseCategoryEdit(${index})">저장</button><button class="deletebtn" onclick="deleteExpenseCategory(${index})">삭제</button></div>`).join("")}</div><div class="addrow manage-add-row"><input id="newExpenseCategory" placeholder="새 카테고리" onkeydown="if(event.key==='Enter')addExpenseCategory()"><button class="editbtn" onclick="addExpenseCategory()">추가</button></div><button class="secondary sheet-close-wide" onclick="closeSheet()">닫기</button>`
 }
 function addExpenseCategory(){
  const input=$("newExpenseCategory"),name=input?.value.trim();if(!name)return toastMsg("카테고리명을 입력해 주세요");

@@ -208,3 +208,7 @@ html,body{background:#dfe7eb;color:var(--ink)}
 .manage-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:6px;align-items:center}
 .sheet{max-height:90vh;overflow-y:auto}
 @media(max-width:380px){.choice-grid{grid-template-columns:1fr}.manage-row{grid-template-columns:minmax(0,1fr) auto}.manage-row .deletebtn{grid-column:2}}
+
+/* ===== v9 inline add and category selection ===== */
+.category-inline-add,.manage-add-row{align-items:center}
+.category-inline-add .editbtn,.manage-add-row .editbtn{flex:0 0 auto}
